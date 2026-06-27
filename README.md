@@ -15,11 +15,35 @@ Packaged as a one-click **`.mcpb`** bundle for Claude Desktop.
 | 📅 **Calendar** | list calendars, list events in a window, create & delete events |
 | 👥 **Contacts** | list address books, list/search contacts, create & delete contacts |
 
-Complete tool list (14): `sogo_list_emails`, `sogo_search_emails`,
-`sogo_read_email`, `sogo_list_mailboxes`, `sogo_send_email`,
-`sogo_delete_email`, `sogo_list_calendars`, `sogo_list_events`,
-`sogo_create_event`, `sogo_delete_event`, `sogo_list_address_books`,
-`sogo_list_contacts`, `sogo_create_contact`, `sogo_delete_contact`.
+Complete tool list (15): `sogo_list_accounts`, `sogo_list_emails`,
+`sogo_search_emails`, `sogo_read_email`, `sogo_list_mailboxes`,
+`sogo_send_email`, `sogo_delete_email`, `sogo_list_calendars`,
+`sogo_list_events`, `sogo_create_event`, `sogo_delete_event`,
+`sogo_list_address_books`, `sogo_list_contacts`, `sogo_create_contact`,
+`sogo_delete_contact`.
+
+### Multiple accounts
+
+The connector can manage several SOGo accounts at once. Configure the primary
+account with the main fields, then add the others as a JSON array in the
+**Extra accounts** field:
+
+```json
+[
+  { "label": "perso", "username": "me@example.com", "password": "secret" },
+  { "label": "work",  "host": "mail.work.com", "username": "me@work.com", "password": "secret" }
+]
+```
+
+Fields omitted in an extra account (host, ports, DAV URL, TLS) inherit from the
+primary account. Every tool then accepts an optional `account` parameter (a
+label or email) to target a specific account — e.g. *"list unread emails in my
+work account"*. Omit it to use the primary account, and use `sogo_list_accounts`
+to see what is configured.
+
+> **SOGo login tip:** use the **full email address** as the username (e.g.
+> `you@example.com`), even if the SOGo web interface lets you log in with just a
+> short name — IMAP/SMTP require the full address.
 
 > Deletions are designed to be safe: `sogo_delete_email` moves the message to
 > Trash by default (pass `permanent: true` to delete irreversibly); calendar

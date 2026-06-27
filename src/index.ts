@@ -2,15 +2,24 @@
 /**
  * SOGo MCP connector.
  *
- * Exposes a self-hosted SOGo / Zentyal groupware account (mail, calendar,
- * contacts) to Claude over the Model Context Protocol, using the standard
- * IMAP / SMTP / CalDAV / CardDAV protocols.
+ * Exposes one or more self-hosted SOGo / Zentyal groupware accounts (mail,
+ * calendar, contacts) to Claude over the Model Context Protocol, using the
+ * standard IMAP / SMTP / CalDAV / CardDAV protocols.
+ *
+ * Every tool accepts an optional `account` parameter to choose which configured
+ * account to act on (by label or email). When omitted, the primary account is
+ * used. Use `sogo_list_accounts` to see what is configured.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { getConfig, assertCredentials } from './config.js';
+import {
+  getAccounts,
+  assertCredentials,
+  resolveAccount,
+  type SogoConfig,
+} from './config.js';
 import {
   listEmails,
   searchEmails,
@@ -33,7 +42,7 @@ import {
 
 const server = new McpServer({
   name: 'sogo_mcp',
-  version: '1.1.1',
+  version: '1.2.0',
 });
 
 type TextResult = {
@@ -48,26 +57,38 @@ function text(body: string, isError = false): TextResult {
 function fail(error: unknown): TextResult {
   const message = error instanceof Error ? error.message : String(error);
   let hint = '';
-  if (/auth|login|credential|invalid/i.test(message)) {
+  if (/unknown account/i.test(message)) {
+    hint = ''; // already actionable
+  } else if (/auth|login|credential|invalid/i.test(message)) {
     hint =
-      '\nCheck SOGO_USERNAME / SOGO_PASSWORD, and that the account can log in to SOGo webmail.';
+      '\nCheck the username / password (on SOGo the IMAP login is usually the full email address).';
   } else if (/self.signed|certificate|altname|tls/i.test(message)) {
     hint =
       '\nTLS certificate problem. If your SOGo server uses a self-signed certificate, enable "Allow insecure TLS".';
   } else if (/ECONNREFUSED|ENOTFOUND|timeout|EAI_AGAIN/i.test(message)) {
     hint =
-      '\nCannot reach the server. Verify SOGO_HOST, ports, and that the server is reachable from this machine.';
+      '\nCannot reach the server. Verify the host, ports, and that the server is reachable from this machine.';
   }
   return text(`Error: ${message}${hint}`, true);
 }
 
-/** Ensure config is valid before running any tool. */
-function requireConfig() {
-  const config = getConfig();
-  const problem = assertCredentials(config);
+/** Resolve the requested account, validating the primary account first. */
+function requireAccount(account?: string): SogoConfig {
+  const accounts = getAccounts();
+  const problem = assertCredentials(accounts[0]);
   if (problem) throw new Error(problem);
-  return config;
+  return resolveAccount(accounts, account);
 }
+
+/** Shared schema fragment: optional account selector present on every tool. */
+const accountField = {
+  account: z
+    .string()
+    .optional()
+    .describe(
+      'Which configured account to use (label or email). Omit to use the primary account.'
+    ),
+};
 
 function formatSummary(e: EmailSummary): string {
   const flags = [
@@ -83,6 +104,38 @@ function formatSummary(e: EmailSummary): string {
     `   Date: ${e.date || '(unknown)'}${flags ? '   ' + flags : ''}`,
   ].join('\n');
 }
+
+/* ----------------------------- Accounts ------------------------------ */
+
+server.registerTool(
+  'sogo_list_accounts',
+  {
+    title: 'List configured accounts',
+    description:
+      'List the SOGo accounts configured in this connector (labels and emails). ' +
+      'Use a label or email as the "account" parameter of other tools to target a specific account.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async () => {
+    try {
+      const accounts = getAccounts();
+      const problem = assertCredentials(accounts[0]);
+      if (problem) return text(`Error: ${problem}`, true);
+      return text(
+        `Configured accounts (${accounts.length}):\n` +
+          accounts
+            .map(
+              (a, i) =>
+                `• ${a.label}${i === 0 ? ' (primary)' : ''} — ${a.username} @ ${a.host}`
+            )
+            .join('\n')
+      );
+    } catch (e) {
+      return fail(e);
+    }
+  }
+);
 
 /* ------------------------------- Mail -------------------------------- */
 
@@ -109,18 +162,19 @@ server.registerTool(
         .boolean()
         .default(false)
         .describe('When true, return only unread messages.'),
+      ...accountField,
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async ({ mailbox, limit, unseen_only }) => {
+  async ({ mailbox, limit, unseen_only, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const emails = await listEmails(config, mailbox, limit, unseen_only);
       if (emails.length === 0) {
-        return text(`No emails found in "${mailbox}".`);
+        return text(`No emails found in "${mailbox}" (account: ${config.label}).`);
       }
       return text(
-        `Found ${emails.length} email(s) in "${mailbox}":\n\n` +
+        `Found ${emails.length} email(s) in "${mailbox}" (account: ${config.label}):\n\n` +
           emails.map(formatSummary).join('\n\n')
       );
     } catch (e) {
@@ -139,18 +193,19 @@ server.registerTool(
       query: z.string().min(1).describe('Text to search for.'),
       mailbox: z.string().default('INBOX').describe('Mailbox to search in.'),
       limit: z.number().int().min(1).max(100).default(20).describe('Max results.'),
+      ...accountField,
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async ({ query, mailbox, limit }) => {
+  async ({ query, mailbox, limit, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const emails = await searchEmails(config, query, mailbox, limit);
       if (emails.length === 0) {
-        return text(`No emails matching "${query}" in "${mailbox}".`);
+        return text(`No emails matching "${query}" in "${mailbox}" (account: ${config.label}).`);
       }
       return text(
-        `Found ${emails.length} email(s) matching "${query}":\n\n` +
+        `Found ${emails.length} email(s) matching "${query}" (account: ${config.label}):\n\n` +
           emails.map(formatSummary).join('\n\n')
       );
     } catch (e) {
@@ -172,15 +227,17 @@ server.registerTool(
         .boolean()
         .default(false)
         .describe('Mark the message as read after fetching.'),
+      ...accountField,
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async ({ uid, mailbox, mark_seen }) => {
+  async ({ uid, mailbox, mark_seen, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const email = await readEmail(config, uid, mailbox, mark_seen);
       if (!email) return text(`No email with uid ${uid} in "${mailbox}".`);
       const parts = [
+        `Account: ${config.label}`,
         `Subject: ${email.subject}`,
         `From: ${email.from}`,
         `To: ${email.to}`,
@@ -204,20 +261,17 @@ server.registerTool(
   {
     title: 'List mailboxes',
     description: 'List all mailboxes/folders available in the account.',
-    inputSchema: {},
+    inputSchema: { ...accountField },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async () => {
+  async ({ account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const boxes = await listMailboxes(config);
       return text(
-        `Mailboxes (${boxes.length}):\n` +
+        `Mailboxes for ${config.label} (${boxes.length}):\n` +
           boxes
-            .map(
-              (b) =>
-                `• ${b.path}${b.specialUse ? ` (${b.specialUse})` : ''}`
-            )
+            .map((b) => `• ${b.path}${b.specialUse ? ` (${b.specialUse})` : ''}`)
             .join('\n')
       );
     } catch (e) {
@@ -242,6 +296,7 @@ server.registerTool(
         .boolean()
         .default(false)
         .describe('Treat body as HTML instead of plain text.'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -249,12 +304,12 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ to, subject, body, cc, bcc, html }) => {
+  async ({ to, subject, body, cc, bcc, html, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await sendEmail(config, { to, subject, body, cc, bcc, html });
       return text(
-        `Email sent (id ${result.messageId}).\n` +
+        `Email sent from ${config.label} (id ${result.messageId}).\n` +
           `Accepted: ${result.accepted.join(', ') || 'none'}` +
           (result.rejected.length ? `\nRejected: ${result.rejected.join(', ')}` : '')
       );
@@ -277,6 +332,7 @@ server.registerTool(
         .boolean()
         .default(false)
         .describe('Permanently delete instead of moving to Trash.'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -284,11 +340,11 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ uid, mailbox, permanent }) => {
+  async ({ uid, mailbox, permanent, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await deleteEmail(config, uid, mailbox, permanent);
-      return text(`Email uid ${uid}: ${result.action}.`);
+      return text(`Email uid ${uid} (account ${config.label}): ${result.action}.`);
     } catch (e) {
       return fail(e);
     }
@@ -302,16 +358,16 @@ server.registerTool(
   {
     title: 'List calendars',
     description: 'List the calendars available in the account.',
-    inputSchema: {},
+    inputSchema: { ...accountField },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async () => {
+  async ({ account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const calendars = await listCalendars(config);
       if (calendars.length === 0) return text('No calendars found.');
       return text(
-        `Calendars (${calendars.length}):\n` +
+        `Calendars for ${config.label} (${calendars.length}):\n` +
           calendars.map((c) => `• ${c.displayName}\n   ${c.url}`).join('\n')
       );
     } catch (e) {
@@ -342,18 +398,19 @@ server.registerTool(
         .default(0)
         .describe('How many days into the past to include.'),
       limit: z.number().int().min(1).max(200).default(50).describe('Max events.'),
+      ...accountField,
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async ({ days_ahead, days_back, limit }) => {
+  async ({ days_ahead, days_back, limit, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const events = await listEvents(config, days_ahead, limit, days_back);
       if (events.length === 0) {
-        return text(`No events found in the selected window.`);
+        return text(`No events found in the selected window (account: ${config.label}).`);
       }
       return text(
-        `Found ${events.length} event(s):\n\n` +
+        `Found ${events.length} event(s) for ${config.label}:\n\n` +
           events
             .map((e) =>
               [
@@ -390,6 +447,7 @@ server.registerTool(
         .string()
         .optional()
         .describe('Target calendar URL (from sogo_list_calendars).'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -397,9 +455,9 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ title, start, end, description, location, calendar_url }) => {
+  async ({ title, start, end, description, location, calendar_url, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await createEvent(config, {
         title,
         start,
@@ -409,7 +467,7 @@ server.registerTool(
         calendarUrl: calendar_url,
       });
       return text(
-        `Event "${title}" created in calendar "${result.calendar}" (uid ${result.uid}).`
+        `Event "${title}" created in calendar "${result.calendar}" (account ${config.label}, uid ${result.uid}).`
       );
     } catch (e) {
       return fail(e);
@@ -425,6 +483,7 @@ server.registerTool(
       'Delete a calendar event by its uid (as returned when listing or creating events). Searches all calendars.',
     inputSchema: {
       uid: z.string().min(1).describe('The uid of the event to delete.'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -432,13 +491,13 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ uid }) => {
+  async ({ uid, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await deleteEvent(config, uid);
       if (!result.deleted) return text(`No event found with uid ${uid}.`);
       return text(
-        `Event deleted${result.summary ? ` ("${result.summary}")` : ''} (uid ${uid}).`
+        `Event deleted${result.summary ? ` ("${result.summary}")` : ''} (account ${config.label}, uid ${uid}).`
       );
     } catch (e) {
       return fail(e);
@@ -453,16 +512,16 @@ server.registerTool(
   {
     title: 'List address books',
     description: 'List the address books available in the account.',
-    inputSchema: {},
+    inputSchema: { ...accountField },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async () => {
+  async ({ account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const books = await listAddressBooks(config);
       if (books.length === 0) return text('No address books found.');
       return text(
-        `Address books (${books.length}):\n` +
+        `Address books for ${config.label} (${books.length}):\n` +
           books.map((b) => `• ${b.displayName}\n   ${b.url}`).join('\n')
       );
     } catch (e) {
@@ -484,20 +543,23 @@ server.registerTool(
         .optional()
         .describe('Optional filter on name, email or organization.'),
       limit: z.number().int().min(1).max(500).default(50).describe('Max contacts.'),
+      ...accountField,
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  async ({ search, limit }) => {
+  async ({ search, limit, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const contacts = await listContacts(config, search, limit);
       if (contacts.length === 0) {
         return text(
-          search ? `No contacts matching "${search}".` : 'No contacts found.'
+          search
+            ? `No contacts matching "${search}" (account: ${config.label}).`
+            : `No contacts found (account: ${config.label}).`
         );
       }
       return text(
-        `Found ${contacts.length} contact(s):\n\n` +
+        `Found ${contacts.length} contact(s) for ${config.label}:\n\n` +
           contacts
             .map((c) =>
               [
@@ -532,6 +594,7 @@ server.registerTool(
         .string()
         .optional()
         .describe('Target address book URL (from sogo_list_address_books).'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -539,9 +602,9 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ name, email, phone, organization, address_book_url }) => {
+  async ({ name, email, phone, organization, address_book_url, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await createContact(config, {
         name,
         email,
@@ -550,7 +613,7 @@ server.registerTool(
         addressBookUrl: address_book_url,
       });
       return text(
-        `Contact "${name}" created in "${result.addressBook}" (uid ${result.uid}).`
+        `Contact "${name}" created in "${result.addressBook}" (account ${config.label}, uid ${result.uid}).`
       );
     } catch (e) {
       return fail(e);
@@ -566,6 +629,7 @@ server.registerTool(
       'Delete a contact by its uid (as returned when listing or creating contacts). Searches all address books.',
     inputSchema: {
       uid: z.string().min(1).describe('The uid of the contact to delete.'),
+      ...accountField,
     },
     annotations: {
       readOnlyHint: false,
@@ -573,13 +637,13 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ uid }) => {
+  async ({ uid, account }) => {
     try {
-      const config = requireConfig();
+      const config = requireAccount(account);
       const result = await deleteContact(config, uid);
       if (!result.deleted) return text(`No contact found with uid ${uid}.`);
       return text(
-        `Contact deleted${result.name ? ` ("${result.name}")` : ''} (uid ${uid}).`
+        `Contact deleted${result.name ? ` ("${result.name}")` : ''} (account ${config.label}, uid ${uid}).`
       );
     } catch (e) {
       return fail(e);
