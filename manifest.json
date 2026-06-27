@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "sogo-connector",
   "display_name": "SOGo Connector",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Access your self-hosted SOGo / Zentyal mail, calendar and contacts from Claude.",
   "icon": "icon.png",
   "long_description": "Connect Claude to a self-hosted **SOGo** groupware server (such as the SOGo bundled with **Zentyal**) using the standard open protocols **IMAP, SMTP, CalDAV and CardDAV** — no Google, no Microsoft.\n\nWith this connector Claude can:\n\n- **Mail** — list, search, read and send emails.\n- **Calendar** — list calendars, list events in a time window, and create new events.\n- **Contacts** — list address books, search contacts, and create new contacts.\n\nYour credentials stay on your machine: they are stored by Claude Desktop and passed to the local server process only. Nothing is sent to any third party.",
@@ -55,20 +55,20 @@
   "user_config": {
     "host": {
       "type": "string",
-      "title": "SOGo server host",
-      "description": "Hostname of your SOGo server, without https:// (e.g. mail.example.com).",
+      "title": "Serveur SOGo / SOGo server host",
+      "description": "Nom d'hôte du serveur, ex. mail.example.com (https:// et chemin sont ignorés automatiquement). | Server hostname, e.g. mail.example.com.",
       "required": true
     },
     "username": {
       "type": "string",
-      "title": "Username / email",
-      "description": "Your SOGo login, usually your full email address.",
+      "title": "Identifiant / Username",
+      "description": "Votre identifiant SOGo (souvent l'adresse email complète). | Your SOGo login, usually the full email address.",
       "required": true
     },
     "password": {
       "type": "string",
-      "title": "Password",
-      "description": "Your SOGo account password. Stored securely by Claude Desktop.",
+      "title": "Mot de passe / Password",
+      "description": "Mot de passe du compte SOGo. Stocké de façon sécurisée par Claude Desktop. | Your SOGo account password.",
       "sensitive": true,
       "required": true
     },

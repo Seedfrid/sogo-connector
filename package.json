@@ -1,6 +1,6 @@
 {
   "name": "sogo-mcp-connector",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP connector for self-hosted SOGo / Zentyal groupware - mail, calendar and contacts in Claude Desktop via IMAP/SMTP/CalDAV/CardDAV",
   "type": "module",
   "main": "dist/index.js",

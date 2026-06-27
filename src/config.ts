@@ -38,8 +38,22 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Normalise a hostname entered by the user. Tolerates common mistakes such as
+ * pasting a full URL ("https://mail.example.com/SOGo") or a trailing slash, and
+ * reduces it to a bare hostname ("mail.example.com").
+ */
+function cleanHost(value: string | undefined): string {
+  return (value || '')
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') // strip scheme (https://, http://)
+    .replace(/\/.*$/, '') // strip any path
+    .replace(/:\d+$/, '') // strip an accidental :port suffix
+    .trim();
+}
+
 export function getConfig(): SogoConfig {
-  const host = (process.env.SOGO_HOST || '').trim();
+  const host = cleanHost(process.env.SOGO_HOST);
   const username = (process.env.SOGO_USERNAME || '').trim();
   const password = process.env.SOGO_PASSWORD || '';
 
@@ -49,9 +63,9 @@ export function getConfig(): SogoConfig {
     host,
     username,
     password,
-    imapHost: (process.env.IMAP_HOST || host).trim(),
+    imapHost: cleanHost(process.env.IMAP_HOST) || host,
     imapPort: int(process.env.IMAP_PORT, 993),
-    smtpHost: (process.env.SMTP_HOST || host).trim(),
+    smtpHost: cleanHost(process.env.SMTP_HOST) || host,
     smtpPort,
     smtpSecure: bool(process.env.SMTP_SECURE, smtpPort === 465),
     davUrl: (process.env.SOGO_DAV_URL || `https://${host}/SOGo/dav`)

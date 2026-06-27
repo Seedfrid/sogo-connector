@@ -33,7 +33,7 @@ import {
 
 const server = new McpServer({
   name: 'sogo_mcp',
-  version: '1.1.0',
+  version: '1.1.1',
 });
 
 type TextResult = {
