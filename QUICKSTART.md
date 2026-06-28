@@ -2,15 +2,16 @@
 
 The fastest way to use this connector.
 
-1. **Download** `sogo-connector.mcpb` from this folder.
-2. In **Claude Desktop**, go to **Settings → Extensions**.
-3. **Drag the `.mcpb` file** into the window (or click *Install* and pick it).
-4. Enter your details:
+1. **Download** `sogo-connector.mcpb` from the Releases page (or this folder).
+2. **Install it**: in **Claude Desktop → Settings → Extensions**, drag the
+   `.mcpb` in (or click *Install* and pick it). You can also just double-click
+   the file / **Open with → Claude**.
+3. Enter your details:
    - **SOGo server host**: `mail.example.com`
    - **Username / email**: `you@example.com`
    - **Password**: your SOGo password
    - If your server uses a self-signed certificate, enable **Allow insecure TLS**.
-5. **Enable** the extension.
+4. **Enable** the extension.
 
 Then just ask Claude, for example:
 

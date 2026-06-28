@@ -1,5 +1,7 @@
 # SOGo Connector for Claude Desktop
 
+*🇫🇷 [Version française](LISEZMOI.md)*
+
 A Model Context Protocol (MCP) connector that lets Claude work with your
 **self-hosted SOGo / Zentyal** account — mail, calendar and contacts — using
 the standard open protocols **IMAP, SMTP, CalDAV and CardDAV**. No Google, no
@@ -15,31 +17,11 @@ Packaged as a one-click **`.mcpb`** bundle for Claude Desktop.
 | 📅 **Calendar** | list calendars, list events in a window, create & delete events |
 | 👥 **Contacts** | list address books, list/search contacts, create & delete contacts |
 
-Complete tool list (15): `sogo_list_accounts`, `sogo_list_emails`,
-`sogo_search_emails`, `sogo_read_email`, `sogo_list_mailboxes`,
-`sogo_send_email`, `sogo_delete_email`, `sogo_list_calendars`,
-`sogo_list_events`, `sogo_create_event`, `sogo_delete_event`,
-`sogo_list_address_books`, `sogo_list_contacts`, `sogo_create_contact`,
-`sogo_delete_contact`.
-
-### Multiple accounts
-
-The connector can manage several SOGo accounts at once. Configure the primary
-account with the main fields, then add the others as a JSON array in the
-**Extra accounts** field:
-
-```json
-[
-  { "label": "perso", "username": "me@example.com", "password": "secret" },
-  { "label": "work",  "host": "mail.work.com", "username": "me@work.com", "password": "secret" }
-]
-```
-
-Fields omitted in an extra account (host, ports, DAV URL, TLS) inherit from the
-primary account. Every tool then accepts an optional `account` parameter (a
-label or email) to target a specific account — e.g. *"list unread emails in my
-work account"*. Omit it to use the primary account, and use `sogo_list_accounts`
-to see what is configured.
+Complete tool list (14): `sogo_list_emails`, `sogo_search_emails`,
+`sogo_read_email`, `sogo_list_mailboxes`, `sogo_send_email`,
+`sogo_delete_email`, `sogo_list_calendars`, `sogo_list_events`,
+`sogo_create_event`, `sogo_delete_event`, `sogo_list_address_books`,
+`sogo_list_contacts`, `sogo_create_contact`, `sogo_delete_contact`.
 
 > **SOGo login tip:** use the **full email address** as the username (e.g.
 > `you@example.com`), even if the SOGo web interface lets you log in with just a
@@ -51,15 +33,20 @@ to see what is configured.
 
 ## Install (recommended — one click)
 
-1. Download **`sogo-connector.mcpb`** from this folder (or the Releases page).
-2. Open **Claude Desktop → Settings → Extensions**.
-3. Drag and drop the `.mcpb` file (or click **Install** and select it).
-4. Fill in the configuration fields:
-   - **SOGo server host** — e.g. `mail.example.com` (no `https://`)
+1. Download **`sogo-connector.mcpb`** from the [Releases page](../../releases)
+   (or from this folder).
+2. **Install it** in Claude Desktop, either way:
+   - Open **Claude Desktop → Settings → Extensions** and drag the `.mcpb` in
+     (or click **Install** and select it), **or**
+   - Double-click the `.mcpb` / **Open with → Claude** — Claude Desktop will
+     offer to install it.
+3. Fill in the configuration fields:
+   - **SOGo server host** — e.g. `mail.example.com` (a full `https://…` URL or a
+     trailing path is tolerated and cleaned automatically)
    - **Username / email** — your full SOGo login
    - **Password**
    - *(optional)* DAV URL, IMAP/SMTP ports, "Allow insecure TLS"
-5. Enable the extension. Done — ask Claude *"list my unread emails"* or
+4. Enable the extension. Done — ask Claude *"list my unread emails"* or
    *"what's on my calendar next week?"*.
 
 The defaults (IMAP 993, SMTP 587 STARTTLS, DAV at `https://<host>/SOGo/dav`)
@@ -69,6 +56,10 @@ password are needed.
 > **Self-signed certificate?** Many self-hosted servers use one. Turn on
 > **Allow insecure TLS** in the configuration if the connection fails with a
 > certificate error.
+
+> **After updating the connector**, fully quit and relaunch Claude Desktop so
+> the new version is loaded (reinstalling alone may keep the old server process
+> running).
 
 ## Configuration reference
 
@@ -81,6 +72,10 @@ password are needed.
 | IMAP port | `IMAP_PORT` | `993` | |
 | SMTP port | `SMTP_PORT` | `587` | |
 | Allow insecure TLS | `SOGO_ALLOW_INSECURE_TLS` | `false` | |
+
+The connector manages a **single account**. Advanced overrides `IMAP_HOST`,
+`SMTP_HOST`, `SMTP_SECURE` and `SOGO_FROM` are also read from the environment if
+set.
 
 ## Security
 
@@ -97,26 +92,33 @@ Requires Node.js 18+.
 ```bash
 npm install
 npm run typecheck     # type-check (no emit)
-npm run build         # bundle to dist/index.js (single file, via esbuild)
+npm run build         # bundle to dist/index.js AND server/index.mjs (esbuild)
 ```
+
+> The build writes **both** `dist/index.js` (used by `npm start`) and
+> `server/index.mjs` (the entry point shipped in the `.mcpb`), so the two can
+> never drift out of sync.
 
 Package the `.mcpb` yourself:
 
 ```bash
 npm install -g @anthropic-ai/mcpb
-mkdir -p build/server
-cp manifest.json build/
-cp dist/index.js build/server/index.mjs
-mcpb validate build/manifest.json
-mcpb pack build sogo-connector.mcpb
+npm run build
+mcpb validate manifest.json
+mcpb pack . sogo-connector.mcpb
 ```
 
-For local development you can also run the server directly over stdio:
+The package only needs `manifest.json`, `icon.png` and `server/index.mjs`.
+
+For local development you can also run the server directly over stdio, or use
+the standalone test scripts:
 
 ```bash
 cp .env.example .env   # fill in your credentials
-SOGO_HOST=mail.example.com SOGO_USERNAME=you@example.com SOGO_PASSWORD=... \
-  node dist/index.js
+node dist/index.js     # run the MCP server over stdio
+
+node test-imap.mjs     # quick IMAP connectivity / read test
+node test-smtp.mjs     # quick SMTP auth + test send (SMTP_VERIFY_ONLY=true to skip sending)
 ```
 
 ## Project layout
@@ -124,13 +126,15 @@ SOGO_HOST=mail.example.com SOGO_USERNAME=you@example.com SOGO_PASSWORD=... \
 ```
 src/
   index.ts            MCP server + tool definitions
-  config.ts           Environment configuration
+  config.ts           Environment configuration (single account)
   clients/
     imap.ts           IMAP (list/search/read) via ImapFlow
     smtp.ts           SMTP (send) via Nodemailer
     dav.ts            CalDAV + CardDAV via tsdav, parsing via ical.js
 manifest.json         MCPB manifest (Claude Desktop)
-esbuild.config.mjs    Single-file bundler config
+esbuild.config.mjs    Single-file bundler config (writes dist + server)
+test-imap.mjs         Standalone IMAP test
+test-smtp.mjs         Standalone SMTP test
 ```
 
 ## Troubleshooting
@@ -138,6 +142,9 @@ esbuild.config.mjs    Single-file bundler config
 - **Authentication failed** — verify the login works in SOGo webmail; the
   username is usually the full email address.
 - **Certificate / TLS error** — enable *Allow insecure TLS* (self-signed cert).
+- **`ENOTFOUND` / `EBADNAME` with `https://…`** — an older version is still
+  running. Fully quit and relaunch Claude Desktop after installing the latest
+  `.mcpb`.
 - **Cannot connect** — check the host and that ports 993 / 587 and the SOGo
   web port are reachable from your machine (firewall / VPN).
 
