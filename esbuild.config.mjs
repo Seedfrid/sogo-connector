@@ -1,10 +1,14 @@
 import { build } from 'esbuild';
+import { copyFileSync, mkdirSync } from 'node:fs';
 
 // Bundle the whole server (and all dependencies) into a single ESM file.
 // This keeps the .mcpb package small and avoids shipping node_modules.
-await build({
+//
+// The .mcpb package ships `server/index.mjs` (see manifest.json entry_point),
+// while `package.json` uses `dist/index.js`. We build once and write both so
+// the two can never drift out of sync.
+const options = {
   entryPoints: ['src/index.ts'],
-  outfile: 'dist/index.js',
   bundle: true,
   platform: 'node',
   format: 'esm',
@@ -16,6 +20,12 @@ await build({
   banner: {
     js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);",
   },
-});
+};
 
-console.log('Build complete: dist/index.js');
+await build({ ...options, outfile: 'dist/index.js' });
+
+// Keep the packaged entry point in sync with the build output.
+mkdirSync('server', { recursive: true });
+copyFileSync('dist/index.js', 'server/index.mjs');
+
+console.log('Build complete: dist/index.js + server/index.mjs');
